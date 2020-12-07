@@ -1,0 +1,12 @@
+standat <- list(N=30, y=rnorm(30, 5))
+out <- rstan::stan("./stantest.stan", data=standat)
+
+out
+class(out)
+rstan::plot(out)
+rstan::stan_plot(out)
+rstan::traceplot(out)
+rstan::sampling(out)
+names(out)
+attributes(out) %>% names
+out@inits
