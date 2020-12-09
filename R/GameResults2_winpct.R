@@ -19,30 +19,42 @@ gr19 %>% group_by(home_points, away_points) %>% summarize(N=n()) %>%
 gamesplayed <- gr19 %>% select(team=home_team, id=home_id) %>% 
   bind_rows(gr19 %>% select(team=away_team, id=away_id)) %>% group_by(team, id) %>% summarize(N=n())
 
-teams <- gr19 %>% select(team=home_team, id=home_id) %>% 
-  bind_rows(gr19 %>% select(team=away_team, id=away_id)) %>% 
+teams <- gr19 %>% select(team=home_team, id=home_id, conf=home_conference) %>% 
+  bind_rows(gr19 %>% select(team=away_team, id=away_id, conf=away_conference)) %>% 
   unique %>% 
   arrange(id) %>% 
   mutate(id2=1:n())
+teams
+# Make sure each team only has one conference listed
+stopifnot(all((teams %>% group_by(team) %>% tally %>% pull(n)) == 1))
+teams %>% filter(is.na(conf)) %>% pull(team)
+# Check that all FBS teams have many games, only FCS should have few games
+teams %>% left_join(gamesplayed) %>% with(table(is.na(conf), N))
+
+teams$isFBS <- !is.na(teams$conf)
+teams$beta_shape1 <- ifelse(teams$isFBS, 4, 1)
+teams$beta_shape2 <- ifelse(teams$isFBS, 4, 7)
 teams
 
 gr19b <- gr19 %>% 
   left_join(teams %>% select(home_id=id, home_id2=id2), "home_id") %>% 
   left_join(teams %>% select(away_id=id, away_id2=id2), "away_id")
 
-
+stopifnot(all(teams$id2 == 1:nrow(teams)))
 gr19datlist <- list(
   Ngames = nrow(gr19b),
   Nteams = length(teams$id2),
   home_id = gr19b$home_id2,
   away_id = gr19b$away_id2,
   home_win = gr19b$home_win %>% as.integer(),
-  neutral_site = gr19b$neutral_site %>% as.integer()
+  neutral_site = gr19b$neutral_site %>% as.integer(),
+  beta_shape1 = teams$beta_shape1,
+  beta_shape2 = teams$beta_shape2
 )
 
 
 timestamp()
-gr19out <- rstan::stan("./GameResults19_2_winpct.stan", data=gr19datlist)
+gr19out <- rstan::stan("./GameResults19_2_winpct.stan", data=gr19datlist, include=T, pars=c("team_strength", "HFA_logodds"))
 timestamp()
 gr19out
 plot(gr19out)
@@ -59,6 +71,7 @@ sumteam <- sumtib %>% filter(stringi::stri_startswith(sumtib$varname, fixed="tea
 sumteam
 # stringi::stri_extract_first(sumtib$varname, regex="team_stren.*")
 sumteam %>% tail
+sumteam$mean %>% hist
 
 source('~/Documents/GitHub/CollegeFootball/R/GetLogoURL.R')
 source('~/Documents/GitHub/CollegeFootball/R/PlotIntervals.R')
@@ -68,9 +81,14 @@ plot_intervals(sumteam %>% head(15) %>% arrange((mean)) %>% mutate(logo=schoolna
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
 plot_intervals(sumteam %>% tail(15) %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
-plot_intervals(sumteam %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
+# plot_intervals(sumteam %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
+#                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
+plot_intervals(sumteam %>% filter(conf=="SEC") %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
+               'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
+plot_intervals(sumteam %>% filter(conf=="Sun Belt") %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
 
+sumtib %>% filter(varname=="HFA")
 HFA <- sumtib %>% filter(varname=="HFA") %>% pull(mean)
 HFA
 

@@ -34,7 +34,7 @@ parameters {
 // 'y' to be normally distributed with mean 'mu'
 // and standard deviation 'sigma'.
 model {
-  pt_diff ~ student_t(8, team_strength[home_id] - team_strength[away_id] + neutral_site * HFA, sigma);
+  pt_diff ~ student_t(8, team_strength[home_id] - team_strength[away_id] + (1-neutral_site) * HFA, sigma);
   HFA ~ normal(0, 5);
   team_strength ~ normal(0, sigma_team_strength);
   sigma_team_strength ~ exponential(1);

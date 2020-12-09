@@ -17,6 +17,8 @@ data {
   int away_id[Ngames];
   int home_win[Ngames];
   vector[Ngames] neutral_site;
+  real beta_shape1[Nteams];
+  real beta_shape2[Nteams];
 }
 
 // The parameters accepted by the model. Our model
@@ -24,17 +26,24 @@ data {
 parameters {
   //real mu;
   vector<lower=0,upper=1>[Nteams] team_strength;
-  real<lower=0> sigma;
-  real<lower=0> sigma_team_strength;
-  real HFA;
+  //real<lower=0> sigma;
+  //real<lower=0> sigma_team_strength;
+  //real<lower=0, upper=1>  HFA;
+  real HFA_logodds;
   //real<lower=1> t_df;
 }
 
 transformed parameters {
+  vector[Ngames] home_win_prob_no_HFA;
   vector[Ngames] home_win_prob;
   //home_win_prob = team_strength[home_id];
-  home_win_prob = (team_strength[home_id] - team_strength[home_id] .* team_strength[away_id]) ./ (
+  // Use log 5 rule for win prob
+  home_win_prob_no_HFA = (team_strength[home_id] - team_strength[home_id] .* team_strength[away_id]) ./ (
     team_strength[home_id] + team_strength[away_id] - 2 * (team_strength[home_id] .* team_strength[away_id]));
+  //home_win_prob = home_win_prob_no_HFA + (1 - neutral_site) * 2 * HFA .* (1 - home_win_prob_no_HFA);
+  //home_win_prob = 1 / (1 + exp(-HFA_logodds) * (1 / home_win_prob_no_HFA - 1)); 
+  home_win_prob = 1 ./ (1 + exp(-HFA_logodds) * (1 ./ home_win_prob_no_HFA - 1));
+  //home_win_prob_no_HFA + (1 - neutral_site) * 2 * HFA .* (1 - home_win_prob_no_HFA);
   //for (i in 1:Ngames) {}
 }
 
@@ -45,11 +54,13 @@ model {
   //home_win ~ student_t(8, team_strength[home_id] - team_strength[away_id] + neutral_site * HFA, sigma);
   home_win ~ bernoulli(home_win_prob);
   //home_win_prob <- team_strength[home_id];
-  HFA ~ normal(0, 5);
+  //HFA ~ normal(0, .1);
+  HFA_logodds ~ normal(0, .5);
   //team_strength ~ normal(0, sigma_team_strength);
-  team_strength ~ beta(1,1);
-  sigma_team_strength ~ exponential(1);
-  sigma ~ exponential(1);
+  //team_strength ~ beta(2,3);
+  team_strength ~ beta(beta_shape1, beta_shape2);
+  //sigma_team_strength ~ exponential(1);
+  //sigma ~ exponential(1);
   //t_df ~ uniform(1,100);
 }
 

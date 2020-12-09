@@ -12,6 +12,8 @@ schoolnametologo <- function(school) {
   )
   url
 }
-schoolnametologo("Notre Dame")
-schoolnametologo("West Virginia")
-schoolnametologo("West Virg")
+if (F) {
+  schoolnametologo("Notre Dame")
+  schoolnametologo("West Virginia")
+  schoolnametologo("West Virg")
+}
