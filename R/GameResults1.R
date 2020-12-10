@@ -43,7 +43,7 @@ gr19datlist <- list(
 timestamp()
 gr19out <- rstan::stan("./GameResults19_1.stan", data=gr19datlist)
 timestamp()
-gr19out
+# gr19out
 plot(gr19out)
 
 sumtib <- gr19out %>% summary %>% .[[1]] %>% {cbind(as_tibble(.), varname=rownames(.))} %>% as_tibble()

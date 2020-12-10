@@ -31,10 +31,13 @@ parameters {
   //real<lower=0, upper=1>  HFA;
   real HFA_logodds;
   //real<lower=1> t_df;
+  real<lower=0> stretch_mult;
+  real<lower=0,upper=1> shrink_factor;
 }
 
 transformed parameters {
   vector[Ngames] home_win_prob_no_HFA;
+  vector[Ngames] home_win_prob_before;
   vector[Ngames] home_win_prob;
   //home_win_prob = team_strength[home_id];
   // Use log 5 rule for win prob
@@ -42,7 +45,9 @@ transformed parameters {
     team_strength[home_id] + team_strength[away_id] - 2 * (team_strength[home_id] .* team_strength[away_id]));
   //home_win_prob = home_win_prob_no_HFA + (1 - neutral_site) * 2 * HFA .* (1 - home_win_prob_no_HFA);
   //home_win_prob = 1 / (1 + exp(-HFA_logodds) * (1 / home_win_prob_no_HFA - 1)); 
-  home_win_prob = 1 ./ (1 + exp(-HFA_logodds) * (1 ./ home_win_prob_no_HFA - 1));
+  home_win_prob_before = 1 ./ (1 + exp(-HFA_logodds * (1 - neutral_site)) .* (1 ./ home_win_prob_no_HFA - 1));
+  //home_win_prob = 1 ./ (1 + exp(- stretch_mult * log(1 ./ (1-home_win_prob_before))));
+  home_win_prob = 1 ./ (1 + exp(-stretch_mult * log(home_win_prob_before ./ (1 - home_win_prob_before)))) * shrink_factor + (1-shrink_factor)/2;
   //home_win_prob_no_HFA + (1 - neutral_site) * 2 * HFA .* (1 - home_win_prob_no_HFA);
   //for (i in 1:Ngames) {}
 }
@@ -62,5 +67,8 @@ model {
   //sigma_team_strength ~ exponential(1);
   //sigma ~ exponential(1);
   //t_df ~ uniform(1,100);
+  //stretch_mult ~ lognormal(0, 1);
+  stretch_mult ~ lognormal(.4,.4);
+  shrink_factor ~ beta(50, 1);
 }
 
