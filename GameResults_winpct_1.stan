@@ -68,7 +68,7 @@ model {
   //sigma ~ exponential(1);
   //t_df ~ uniform(1,100);
   //stretch_mult ~ lognormal(0, 1);
-  stretch_mult ~ lognormal(.4,.4);
+  stretch_mult ~ lognormal(.4*3,.4);
   shrink_factor ~ beta(50, 1);
 }
 

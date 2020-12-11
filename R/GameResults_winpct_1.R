@@ -57,7 +57,7 @@ gr19datlist <- list(
 
 
 timestamp()
-gr19out <- rstan::stan("./GameResults19_2_winpct.stan", data=gr19datlist) #, include=T, pars=c("team_strength", "HFA_logodds"))
+gr19out <- rstan::stan("./GameResults_winpct_1.stan", data=gr19datlist) #, include=T, pars=c("team_strength", "HFA_logodds"))
 timestamp()
 # gr19out
 plot(gr19out)
@@ -96,8 +96,10 @@ HFA_logodds <- sumtib %>% filter(varname=="HFA_logodds") %>% pull(mean)
 HFA_logodds
 curve(1/(1+exp(-HFA_logodds)*(1-x)/x)); abline(a=0,b=1,col=2)
 curve(1/(1+exp(-HFA_logodds)*(1-x)/x) - x); 
+sumtib %>% filter(varname=="stretch_mult")
 stretch_mult <- sumtib %>% filter(varname=="stretch_mult") %>% pull(mean)
 stretch_mult
+sumtib %>% filter(varname=="shrink_factor")
 shrink_factor <- sumtib %>% filter(varname=="shrink_factor") %>% pull(mean)
 shrink_factor
 
