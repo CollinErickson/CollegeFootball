@@ -6,13 +6,14 @@ library(ggplot2)
 library(cbe)
 library(rstan)
 library(readr)
-years <- 2019:2020
+years <- 2017:2020
 gr19 <- lapply(years, function(year) {read_csv(file=paste0("./data/GameResults/GameResults",year,".csv"))}) %>%
   bind_rows() %>% 
   mutate(pt_diff=home_points - away_points)
 gr19 %>% head
 gr19 %>% tail
 gr19 %>% pw
+gr19$season %>% table3
 
 # ggplot(gr19, aes(home_points, away_points)) + geom_point()
 gr19 %>% group_by(home_points, away_points) %>% summarize(N=n()) %>% 
@@ -48,6 +49,7 @@ teamyears %>% filter(conf == "FCS") %>% pull(team)
 # Check that all FBS teams have many games, only FCS should have few games
 teamyears %>% left_join(gamesplayed) %>% with(table(conf == "FCS", N))
 gamesplayed %>% left_join(teamyears, c("team", 'id', 'season')) %>% filter(conf=="FCS") %>% arrange(-N)
+gamesplayed %>% left_join(teamyears, c("team", 'id', 'season')) %>% filter(conf!="FCS") %>% arrange(N)
 
 gr19b <- gr19 %>% 
   left_join(teamyears %>% select(home_id=id, home_id2=tyid, home_confid=confid, season), c("home_id", "season")) %>% 
@@ -61,6 +63,7 @@ gr19datlist <- list(
   Ngames_mis = sum(!games_include), #nrow(gr19b),
   Nteams = nrow(teamyears), #length(teams$id2),
   Nconfs = nrow(confyears), #nrow(confs),
+  confid_prev = confyears$confid_prev %>% {ifelse(is.na(.),0,.)},
   home_id_obs = gr19b$home_id2[games_include],
   away_id_obs = gr19b$away_id2[games_include],
   home_id_mis = gr19b$home_id2[!games_include],
@@ -68,6 +71,7 @@ gr19datlist <- list(
   # home_confid = gr19b$home_confid,
   # away_confid = gr19b$away_confid,
   team_confid = teamyears$confid, #teams$confid,
+  # team_confid_prev = teamyears$confid_prev,
   pt_diff_obs = gr19b$pt_diff[games_include],
   neutral_site_obs = gr19b$neutral_site[games_include] %>% as.integer(),
   neutral_site_mis = gr19b$neutral_site[!games_include] %>% as.integer()
@@ -75,7 +79,7 @@ gr19datlist <- list(
 
 
 timestamp()
-gr19out <- rstan::stan("./GameResults_ptdiff_4_predict.stan", data=gr19datlist)
+gr19out <- rstan::stan("./GameResults_ptdiff_5_multiyear.stan", data=gr19datlist)
 timestamp()
 # gr19out
 plot(gr19out)
@@ -98,10 +102,12 @@ sumteamconf <- sumtib %>% filter(stringi::stri_startswith(sumtib$varname, fixed=
   left_join(gamesplayed, c("team", "id", 'season'))
 
 
-sumconf <- sumtib %>% filter(stringi::stri_startswith(sumtib$varname, fixed="conf_strength")) %>% 
-  mutate(confid=as.integer(substring(varname, first=nchar("conf_strength_")+1, last=nchar(varname)-1))) %>% 
+sumconf <- sumtib %>% filter(stringi::stri_startswith(sumtib$varname, fixed="conf_strength[")) %>% 
+  mutate(confid=as.integer(substring(varname, first=nchar("conf_strength[")+1, last=nchar(varname)-1))) %>% 
   left_join(confyears, 'confid') %>% arrange(-mean)
 sumconf %>% pnw
+sumconf %>% ggplot(aes(season, mean, group=conf)) + geom_line() + geom_point() + ggrepel::geom_label_repel(aes(label=conf))
+sumconf %>% ggplot(aes(season, mean, group=conf)) + geom_line() + geom_point() + facet_wrap(.~conf)
 
 source("./R/PlotIntervals.R"); source("./R/GetLogoURL.R")
 plot_intervals(sumteam %>% sample_n(15) %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
@@ -138,8 +144,8 @@ ggplot(gr19c, aes(pred_pt_diff, pt_diff)) + geom_point() + geom_abline(slope=1, 
 ggplot(gr19c, aes(pred_pt_diff - pt_diff)) + geom_histogram() #+ geom_abline(slope=1, intercept=0, color="red") + stat_smooth()
 ggplot(gr19c, aes(pred_pt_diff,pred_pt_diff - pt_diff)) + geom_point() + geom_abline(slope=0, intercept=0, color="red") + stat_smooth()
 
-# RMSE of 12.77 points
-with(gr19c, sqrt(mean((pred_pt_diff - pt_diff)^2)))
+# RMSE of 12.77 points for 2019 only on conf model
+with(gr19c %>% filter(!is.na(pt_diff)), sqrt(mean((pred_pt_diff - pt_diff)^2)))
 
 sumteam %>% arrange(-mean) %>% mutate(r95=`97.5%` - `2.5%`) %>% arrange(desc(r95)) %>% ggplot(aes(mean, r95)) + geom_point()
 # Higher range means fewer games played
@@ -147,9 +153,9 @@ sumteam %>% arrange(-mean) %>% mutate(r95=`97.5%` - `2.5%`) %>% arrange(desc(r95
 
 
 # Find win prob based on point differential.
-gr19c %>% ggplot(aes(pt_diff, home_points > away_points)) + geom_point() + stat_smooth()
-gr19c %>% ggplot(aes(pred_pt_diff, as.integer(home_points > away_points))) + geom_point() + stat_smooth()
-winprobmod <- glm(data=gr19c %>% mutate(home_win=home_points > away_points),
+# gr19c %>% filter(!is.na(pt_diff)) %>% ggplot(aes(pt_diff, home_points > away_points)) + geom_point() + stat_smooth()
+gr19c %>% filter(!is.na(pt_diff)) %>% ggplot(aes(pred_pt_diff, as.integer(home_points > away_points))) + geom_point() + stat_smooth()
+winprobmod <- glm(data=gr19c %>% filter(!is.na(pt_diff)) %>% mutate(home_win=home_points > away_points),
     formula = home_win ~ pred_pt_diff, family=binomial())
 winprobmod
 # HFA is 2.2 points, but is makes win prob up to 56%
