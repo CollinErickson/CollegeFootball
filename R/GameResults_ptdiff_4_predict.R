@@ -1,4 +1,4 @@
-# CBE 12/4/2020
+# CBE 12/14/2020
 
 
 library(dplyr)
@@ -6,7 +6,7 @@ library(ggplot2)
 library(cbe)
 library(rstan)
 library(readr)
-year <- 2019
+year <- 2020
 gr19 <- read_csv(file=paste0("./data/GameResults/GameResults",year,".csv")) %>% 
   mutate(pt_diff=home_points - away_points)
 gr19 %>% head
@@ -45,21 +45,25 @@ gr19b
 
 games_include <- !is.na(gr19b$pt_diff)
 gr19datlist <- list(
-  Ngames = sum(games_include), #nrow(gr19b),
+  Ngames_obs = sum(games_include), #nrow(gr19b),
+  Ngames_mis = sum(!games_include), #nrow(gr19b),
   Nteams = length(teams$id2),
   Nconfs = nrow(confs),
-  home_id = gr19b$home_id2[games_include],
-  away_id = gr19b$away_id2[games_include],
+  home_id_obs = gr19b$home_id2[games_include],
+  away_id_obs = gr19b$away_id2[games_include],
+  home_id_mis = gr19b$home_id2[!games_include],
+  away_id_mis = gr19b$away_id2[!games_include],
   # home_confid = gr19b$home_confid,
   # away_confid = gr19b$away_confid,
   team_confid = teams$confid,
-  pt_diff = gr19b$pt_diff[games_include],
-  neutral_site = gr19b$neutral_site[games_include] %>% as.integer()
+  pt_diff_obs = gr19b$pt_diff[games_include],
+  neutral_site_obs = gr19b$neutral_site[games_include] %>% as.integer(),
+  neutral_site_mis = gr19b$neutral_site[!games_include] %>% as.integer()
 )
 
 
 timestamp()
-gr19out <- rstan::stan("./GameResults_ptdiff_2_conf.stan", data=gr19datlist)
+gr19out <- rstan::stan("./GameResults_ptdiff_4_predict.stan", data=gr19datlist)
 timestamp()
 # gr19out
 plot(gr19out)
