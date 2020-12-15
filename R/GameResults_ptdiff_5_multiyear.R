@@ -6,56 +6,68 @@ library(ggplot2)
 library(cbe)
 library(rstan)
 library(readr)
-year <- 2019
-gr19 <- read_csv(file=paste0("./data/GameResults/GameResults",year,".csv")) %>% 
+years <- 2019:2020
+gr19 <- lapply(years, function(year) {read_csv(file=paste0("./data/GameResults/GameResults",year,".csv"))}) %>%
+  bind_rows() %>% 
   mutate(pt_diff=home_points - away_points)
 gr19 %>% head
+gr19 %>% tail
 gr19 %>% pw
 
 # ggplot(gr19, aes(home_points, away_points)) + geom_point()
 gr19 %>% group_by(home_points, away_points) %>% summarize(N=n()) %>% 
   ggplot(aes(home_points, away_points, size=N)) + geom_point() + scale_size_area()
 
-gamesplayed <- gr19 %>% select(team=home_team, id=home_id) %>% 
-  bind_rows(gr19 %>% select(team=away_team, id=away_id)) %>% group_by(team, id) %>% summarize(N=n())
+gamesplayed <- gr19 %>% select(team=home_team, id=home_id, season) %>% 
+  bind_rows(gr19 %>% select(team=away_team, id=away_id, season)) %>% group_by(team, id, season) %>% 
+  summarize(N=n()) %>% ungroup
 
-confs <- tibble(conf=c(gr19$home_conference, gr19$away_conference, "FCS") %>% unique) %>% 
-  filter(!is.na(conf)) %>% 
-  mutate(confid=1:n())
-confs
+confyears <- gr19 %>% select(conf=home_conference, season=season) %>% 
+  bind_rows(gr19 %>% select(conf=away_conference, season=season)) %>% 
+  unique %>% 
+  mutate(conf=ifelse(is.na(conf), "FCS", conf)) %>% arrange(season, conf) %>% 
+  mutate(confid=1:n()) %>% 
+  {left_join(., mutate(., season=season+1), by=c("conf", "season"), suffix=c("", "_prev"))}
+confyears %>% pn
+# confs <- tibble(conf=c(gr19$home_conference, gr19$away_conference, "FCS") %>% unique) %>% 
+#   filter(!is.na(conf)) %>% 
+#   mutate(confid=1:n())
+# confs
 
-teams <- gr19 %>% select(team=home_team, id=home_id, conf=home_conference) %>% 
-  bind_rows(gr19 %>% select(team=away_team, id=away_id, conf=away_conference)) %>% 
+teamyears <- gr19 %>% select(team=home_team, id=home_id, conf=home_conference, season) %>% 
+  bind_rows(gr19 %>% select(team=away_team, id=away_id, conf=away_conference, season)) %>% 
   unique %>% 
   arrange(id) %>% 
-  mutate(id2=1:n(), conf=ifelse(is.na(conf), "FCS", conf)) %>% 
-  left_join(confs, "conf")
-teams
+  mutate(tyid=1:n(), conf=ifelse(is.na(conf), "FCS", conf)) %>% 
+  left_join(confyears, c("conf", "season"))
+teamyears
+# teams <- teamyears %>% select(team, id) %>% unique
 # Make sure each team only has one conference listed
-stopifnot(all((teams %>% group_by(team) %>% tally %>% pull(n)) == 1))
-teams %>% filter(conf == "FCS") %>% pull(team)
+stopifnot(all((teamyears %>% group_by(team, season) %>% tally %>% pull(n)) == 1))
+teamyears %>% filter(conf == "FCS") %>% pull(team)
 # Check that all FBS teams have many games, only FCS should have few games
-teams %>% left_join(gamesplayed) %>% with(table(conf == "FCS", N))
-gamesplayed %>% left_join(teams, c("team", 'id')) %>% filter(conf=="FCS") %>% arrange(-N)
+teamyears %>% left_join(gamesplayed) %>% with(table(conf == "FCS", N))
+gamesplayed %>% left_join(teamyears, c("team", 'id', 'season')) %>% filter(conf=="FCS") %>% arrange(-N)
 
 gr19b <- gr19 %>% 
-  left_join(teams %>% select(home_id=id, home_id2=id2, home_confid=confid), "home_id") %>% 
-  left_join(teams %>% select(away_id=id, away_id2=id2, away_confid=confid), "away_id")
+  left_join(teamyears %>% select(home_id=id, home_id2=tyid, home_confid=confid, season), c("home_id", "season")) %>% 
+  left_join(teamyears %>% select(away_id=id, away_id2=tyid, away_confid=confid, season), c("away_id", "season"))
+stopifnot(nrow(gr19b) == nrow(gr19))
 gr19b
 
 games_include <- !is.na(gr19b$pt_diff)
 gr19datlist <- list(
   Ngames_obs = sum(games_include), #nrow(gr19b),
   Ngames_mis = sum(!games_include), #nrow(gr19b),
-  Nteams = length(teams$id2),
-  Nconfs = nrow(confs),
+  Nteams = nrow(teamyears), #length(teams$id2),
+  Nconfs = nrow(confyears), #nrow(confs),
   home_id_obs = gr19b$home_id2[games_include],
   away_id_obs = gr19b$away_id2[games_include],
   home_id_mis = gr19b$home_id2[!games_include],
   away_id_mis = gr19b$away_id2[!games_include],
   # home_confid = gr19b$home_confid,
   # away_confid = gr19b$away_confid,
-  team_confid = teams$confid,
+  team_confid = teamyears$confid, #teams$confid,
   pt_diff_obs = gr19b$pt_diff[games_include],
   neutral_site_obs = gr19b$neutral_site[games_include] %>% as.integer(),
   neutral_site_mis = gr19b$neutral_site[!games_include] %>% as.integer()
@@ -75,34 +87,36 @@ sumtib %>% arrange(n_eff)
 sumtib %>% arrange(-mean)
 
 sumteam <- sumtib %>% filter(stringi::stri_startswith(sumtib$varname, fixed="team_strength[")) %>% 
-  mutate(id2=as.integer(substring(varname, first=nchar("team_strength[")+1, last=nchar(varname)-1))) %>% 
-  left_join(teams, 'id2') %>% arrange(-mean) %>% 
-  left_join(gamesplayed, c("team", "id"))
+  mutate(tyid=as.integer(substring(varname, first=nchar("team_strength[")+1, last=nchar(varname)-1))) %>% 
+  left_join(teamyears, 'tyid') %>% arrange(-mean) %>% 
+  left_join(gamesplayed, c("team", "id", 'season'))
 sumteam
 sumteam %>% tail
 sumteamconf <- sumtib %>% filter(stringi::stri_startswith(sumtib$varname, fixed="team_strength_around_conf[")) %>% 
-  mutate(id2=as.integer(substring(varname, first=nchar("team_strength_around_conf[")+1, last=nchar(varname)-1))) %>% 
-  left_join(teams, 'id2') %>% arrange(-mean) %>% 
-  left_join(gamesplayed, c("team", "id"))
+  mutate(tyid=as.integer(substring(varname, first=nchar("team_strength_around_conf[")+1, last=nchar(varname)-1))) %>% 
+  left_join(teamyears, 'tyid') %>% arrange(-mean) %>% 
+  left_join(gamesplayed, c("team", "id", 'season'))
 
 
 sumconf <- sumtib %>% filter(stringi::stri_startswith(sumtib$varname, fixed="conf_strength")) %>% 
   mutate(confid=as.integer(substring(varname, first=nchar("conf_strength_")+1, last=nchar(varname)-1))) %>% 
-  left_join(confs, 'confid') %>% arrange(-mean)
+  left_join(confyears, 'confid') %>% arrange(-mean)
 sumconf %>% pnw
 
 source("./R/PlotIntervals.R"); source("./R/GetLogoURL.R")
 plot_intervals(sumteam %>% sample_n(15) %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
-plot_intervals(sumteam %>% head(15) %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
+plot_intervals(sumteam %>% filter(season==2019) %>% head(15) %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
+               'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
+plot_intervals(sumteam %>% filter(season==2020) %>% head(15) %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
 plot_intervals(sumteam %>% tail(15) %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
 # plot_intervals(sumteam %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
 #                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
-plot_intervals(sumteam %>% filter(conf=="SEC") %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
+plot_intervals(sumteam %>% filter(season==2020,conf=="SEC") %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
-plot_intervals(sumteamconf %>% filter(conf=="SEC") %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
+plot_intervals(sumteamconf %>% filter(season==2020, conf=="SEC") %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
 plot_intervals(sumteam %>% filter(conf=="Big Ten") %>% arrange((mean)) %>% mutate(logo=schoolnametologo(team)), 
                'mean', '`2.5%`', '`97.5%`', yname="team", imgurl = "logo")
